@@ -4,6 +4,7 @@ import { createMapCommand } from "./operations/map";
 import { createModulateCommand, ModulateParams } from "./operations/modulate";
 import { createLUTCommand, LUTParams } from "./operations/lut";
 import { RenderContext, Size } from "./types";
+import { computeSize, ResizeParams } from "./utils/resize";
 
 type ImageSource = string;
 
@@ -14,7 +15,12 @@ class FBO {
 
   constructor(regl: Regl, size: Size) {
     this.size = size;
-    this.texture = regl.texture({ width: size.width, height: size.height });
+    this.texture = regl.texture({
+      width: size.width,
+      height: size.height,
+      min: "linear",
+      mag: "linear",
+    });
     this.buffer = regl.framebuffer({ color: this.texture });
   }
 
@@ -66,6 +72,7 @@ export class SharpGPU {
 
   private fboA: FBO;
   private fboB: FBO;
+  private lastSize: Size;
 
   private commands: RenderCommands;
 
@@ -91,6 +98,7 @@ export class SharpGPU {
     this.fboA = params.fboA ?? new FBO(this.regl, this.size);
     this.fboB = params.fboB ?? new FBO(this.regl, this.size);
     this.commands = new RenderCommands(this.regl);
+    this.lastSize = this.size;
   }
 
   static async from(src: ImageSource) {
@@ -157,7 +165,10 @@ export class SharpGPU {
 
       const cmd = this.regl<RenderContext>({
         framebuffer: this.fboB.buffer,
-        context: { srcTexture: this.fboA.texture },
+        context: {
+          srcTexture: this.fboA.texture,
+          srcSize: this.fboA.size,
+        },
       });
 
       cmd(() => {
@@ -165,6 +176,7 @@ export class SharpGPU {
         item.cmd({ ...item.params });
       });
 
+      this.fboA.resize(this.fboB.size);
       this.swapFBOs();
     }
 
@@ -180,10 +192,11 @@ export class SharpGPU {
   }
 
   // Commands
-  resize(size: Size) {
+  resize(params: ResizeParams) {
+    this.lastSize = computeSize(this.lastSize, params);
     return this.pipe({
       cmd: this.commands.map,
-      size,
+      size: this.lastSize,
     });
   }
 
@@ -234,6 +247,14 @@ export class SharpGPU {
   /** Render the result to a canvas */
   async toCanvas(target: HTMLCanvasElement) {
     await this.render();
+
+    if (
+      target.width !== this.canvas.width ||
+      target.height !== this.canvas.height
+    ) {
+      target.width = this.canvas.width;
+      target.height = this.canvas.height;
+    }
 
     const ctx = target.getContext("2d");
     if (!ctx) {

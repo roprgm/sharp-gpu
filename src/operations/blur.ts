@@ -43,8 +43,8 @@ export function createBlurCommand(regl: Regl) {
     `,
     uniforms: {
       src: (ctx: RenderContext) => ctx.srcTexture,
-      width: (ctx: RenderContext) => ctx.viewportWidth,
-      height: (ctx: RenderContext) => ctx.viewportHeight,
+      width: (ctx: RenderContext) => ctx.srcSize.width,
+      height: (ctx: RenderContext) => ctx.srcSize.height,
       direction: regl.prop<BlurParams, "direction">("direction"),
       radius: regl.prop<BlurParams, "radius">("radius"),
     },

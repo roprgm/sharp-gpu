@@ -5,6 +5,7 @@ const canvas = document.getElementById("main") as HTMLCanvasElement;
 
 async function main() {
   let image = await SharpGPU.from("/example.png");
+  image.resize({ width: 500 });
 
   // Create controls
   const params = {
@@ -19,9 +20,6 @@ async function main() {
 
     // Tint
     tint: { r: 255, g: 255, b: 255 },
-
-    // LUT
-    lutFactor: 0.5,
   };
 
   const render = () => {
@@ -35,7 +33,6 @@ async function main() {
         lightness: params.lightness,
         tint: [params.tint.r / 255, params.tint.g / 255, params.tint.b / 255],
       })
-      .lut((x: number) => Math.pow(x, params.lutFactor))
       .toCanvas(canvas);
   };
 
@@ -85,7 +82,7 @@ async function main() {
       min: 0,
       max: 360,
       step: 1,
-      label: "Hue Rotate",
+      label: "Hue",
     })
     .on("change", render);
 
@@ -104,15 +101,6 @@ async function main() {
     })
     .on("change", render);
 
-  colorFolder
-    .addBinding(params, "lutFactor", {
-      min: 0,
-      max: 2,
-      step: 0.01,
-      label: "LUT Factor",
-    })
-    .on("change", render);
-
   // Reset button
   pane
     .addButton({
@@ -125,7 +113,6 @@ async function main() {
       params.hue = 0;
       params.lightness = 0;
       params.tint = { r: 255, g: 255, b: 255 };
-      params.lutFactor = 0.5;
       pane.refresh();
       render();
     });
