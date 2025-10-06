@@ -14,6 +14,7 @@
     "vite": "^5.4.8"
   },
   "dependencies": {
+    "regl": "^2.1.1",
     "tweakpane": "^4.0.5"
   }
 }
