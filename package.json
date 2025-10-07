@@ -1,6 +1,6 @@
 {
   "name": "sharp-gpu",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "GPU-accelerated image processing library for the web",
   "packageManager": "bun@1.2.0",
   "type": "module",
