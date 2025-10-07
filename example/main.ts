@@ -1,37 +1,91 @@
 import { SharpGPU } from "sharp-gpu";
 import { Pane } from "tweakpane";
+import {
+  applyToneCurveState,
+  createToneCurveControl,
+  createToneCurveState,
+  ToneCurveControl,
+  ToneCurveState,
+} from "./utils/tone-curve";
 
-const canvas = document.getElementById("main") as HTMLCanvasElement;
-
-const defaultParams = {
-  // Effects
-  blur: 0,
-
-  // Color adjustments
-  brightness: 1,
-  saturation: 1,
-  hue: 0,
-  lightness: 0,
-
-  // Linear adjustment
-  multiply: { r: 1, g: 1, b: 1, a: 1 },
-  add: { r: 0, g: 0, b: 0, a: 0 },
-
-  // Gamma
-  gamma: 1.0,
-
-  // Negate
-  negate: false,
+type LinearColor = {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
 };
 
+type AppParams = {
+  blur: number;
+  brightness: number;
+  saturation: number;
+  hue: number;
+  lightness: number;
+  multiply: LinearColor;
+  add: LinearColor;
+  gamma: number;
+  negate: boolean;
+  toneCurve: ToneCurveState;
+};
+
+const mapAddChannel = (value: number) => (value - 0.5) * 2;
+
+function createDefaultParams(): AppParams {
+  return {
+    blur: 0,
+    brightness: 1,
+    saturation: 1,
+    hue: 0,
+    lightness: 0,
+    multiply: { r: 1, g: 1, b: 1, a: 1 },
+    add: { r: 0.5, g: 0.5, b: 0.5, a: 0.5 },
+    gamma: 1,
+    negate: false,
+    toneCurve: createToneCurveState(),
+  };
+}
+
+function applyParams(target: AppParams, source: AppParams) {
+  target.blur = source.blur;
+  target.brightness = source.brightness;
+  target.saturation = source.saturation;
+  target.hue = source.hue;
+  target.lightness = source.lightness;
+  target.gamma = source.gamma;
+  target.negate = source.negate;
+
+  Object.assign(target.multiply, source.multiply);
+  Object.assign(target.add, source.add);
+
+  applyToneCurveState(target.toneCurve, source.toneCurve);
+}
+
 async function main() {
+  const canvas = document.getElementById("main") as HTMLCanvasElement | null;
+  if (!canvas) {
+    throw new Error("Canvas element with id 'main' not found");
+  }
+
   let image = await SharpGPU.from("/example.png");
   image.resize({ width: 500 });
 
-  // Create controls
-  const params = { ...defaultParams };
+  const params = createDefaultParams();
 
   const render = () => {
+    const multiplyVec: [number, number, number, number] = [
+      params.multiply.r,
+      params.multiply.g,
+      params.multiply.b,
+      params.multiply.a,
+    ];
+
+    const addVec: [number, number, number, number] = [
+      mapAddChannel(params.add.r),
+      mapAddChannel(params.add.g),
+      mapAddChannel(params.add.b),
+      mapAddChannel(params.add.a),
+    ];
+
     let pipeline = image
       .clone()
       .modulate({
@@ -40,16 +94,14 @@ async function main() {
         hue: params.hue,
         lightness: params.lightness,
       })
-      .gamma(params.gamma)
-      .multiply([
-        params.multiply.r,
-        params.multiply.g,
-        params.multiply.b,
-        params.multiply.a,
-      ])
-      .add([params.add.r, params.add.g, params.add.b, params.add.a]);
+      .linear(multiplyVec, addVec)
+      .gamma(params.gamma);
 
-    if (params.blur) {
+    if (params.toneCurve.enabled) {
+      pipeline = pipeline.lut(params.toneCurve.lut);
+    }
+
+    if (params.blur > 0) {
       pipeline = pipeline.blur(params.blur);
     }
 
@@ -60,28 +112,14 @@ async function main() {
     pipeline.toCanvas(canvas);
   };
 
-  const pane = new Pane({
-    title: "SharpGPU Controls",
-  });
+  const pane = new Pane({ title: "SharpGPU Controls" });
 
-  // Effects folder
-  const effectsFolder = pane.addFolder({
-    title: "Effects",
-  });
-
+  const effectsFolder = pane.addFolder({ title: "Effects" });
   effectsFolder
-    .addBinding(params, "blur", {
-      min: 0,
-      max: 32,
-      step: 0.1,
-      label: "Blur",
-    })
+    .addBinding(params, "blur", { min: 0, max: 32, step: 0.1, label: "Blur" })
     .on("change", render);
 
-  // Color folder
-  const colorFolder = pane.addFolder({
-    title: "Color",
-  });
+  const colorFolder = pane.addFolder({ title: "Color" });
 
   colorFolder
     .addBinding(params, "brightness", {
@@ -119,10 +157,9 @@ async function main() {
     })
     .on("change", render);
 
-  // Linear & Gamma controls
   colorFolder
     .addBinding(params, "multiply", {
-      label: "Multiply",
+      label: "Linear Multiply",
       color: { type: "float", alpha: true },
       picker: "inline",
     })
@@ -130,9 +167,9 @@ async function main() {
 
   colorFolder
     .addBinding(params, "add", {
-      label: "Add",
-      picker: "inline",
+      label: "Linear Add",
       color: { type: "float", alpha: true },
+      picker: "inline",
     })
     .on("change", render);
 
@@ -145,23 +182,45 @@ async function main() {
     })
     .on("change", render);
 
-  // Negate folder
+  const toneCurveFolder = pane.addFolder({
+    title: "Tone Curve",
+    expanded: false,
+  });
+
+  const toneCurveToggle = toneCurveFolder.addBinding(
+    params.toneCurve,
+    "enabled",
+    {
+      label: "Enable",
+    },
+  );
+
+  const toneCurveControl: ToneCurveControl = createToneCurveControl(
+    toneCurveFolder,
+    params.toneCurve,
+    render,
+  );
+  toneCurveControl.setEnabled(params.toneCurve.enabled);
+  toneCurveControl.refresh({ emit: false });
+
+  toneCurveToggle.on("change", (ev) => {
+    toneCurveControl.setEnabled(ev.value as boolean);
+    render();
+  });
+
   colorFolder
     .addBinding(params, "negate", {
       label: "Negate",
     })
     .on("change", render);
 
-  // Reset button
-  pane
-    .addButton({
-      title: "Reset All",
-    })
-    .on("click", () => {
-      Object.assign(params, defaultParams);
-      pane.refresh();
-      render();
-    });
+  pane.addButton({ title: "Reset All" }).on("click", () => {
+    const defaults = createDefaultParams();
+    applyParams(params, defaults);
+    toneCurveControl.setEnabled(params.toneCurve.enabled);
+    toneCurveControl.refresh({ emit: true });
+    pane.refresh();
+  });
 
   render();
 }
