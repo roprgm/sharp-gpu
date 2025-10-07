@@ -2,6 +2,8 @@
 
 A GPU-accelerated image processing library for the web, powered by WebGL and REGL. Perform real-time image transformations with blur, color adjustments, LUTs, and more.
 
+> ⚠️ **Beta software**: SharpGPU is actively under development and not yet ready for production workloads.
+
 ## Features
 
 - 🚀 GPU-accelerated image processing using WebGL
@@ -10,6 +12,49 @@ A GPU-accelerated image processing library for the web, powered by WebGL and REG
 - 🎭 LUT (Look-Up Table) support for custom color grading
 - ⛓️ Chainable API for complex image pipelines
 - 📦 Built with TypeScript for full type safety
+
+## Roadmap
+
+### Core Pipeline & I/O
+
+- [ ] Multi-source inputs (`Buffer`, `ReadableStream`, filesystem paths)
+- [x] Load from image URL/path via `SharpGPU.from`
+- [ ] Metadata inspection (`metadata()`)
+- [ ] File/`Buffer` outputs (`toFile`, `toBuffer`)
+- [x] Canvas output (`toCanvas`)
+- [x] Browser blob export (`toBlob`)
+
+### Geometry & Resizing
+
+- [x] Basic resize by width/height with aspect preservation
+- [ ] Resize fit/cover/fill strategies (e.g. `fit: cover`, `background`)
+- [ ] Crop/extract, extend/pad, trim
+- [ ] Rotate, flip, flop
+- [ ] Affine/projective transforms
+
+### Color & Tone
+
+- [x] Modulate brightness, saturation, hue, lightness
+- [x] Tint
+- [x] Grayscale
+- [x] LUT-based grading (`lut()`)
+- [ ] Linear, gamma, normalize, negate
+- [ ] Thresholding
+- [ ] Channel operations (remove/ensure alpha, join/extract channel)
+
+### Effects & Convolution
+
+- [x] Gaussian blur (single-pass separable)
+- [ ] Median blur
+- [ ] Sharpen
+- [ ] Custom convolution kernels
+- [ ] Composite/overlay operations
+
+### Pipeline Composition
+
+- [x] Chainable operation builder
+- [ ] Stream-based piping (`pipeline()`, `clone()` semantics for concurrency)
+- [ ] Queued/concurrent job control (`queue()`, `limitInputPixels`)
 
 ## Installation
 
