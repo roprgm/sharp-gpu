@@ -22,7 +22,8 @@
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "dev:example": "cd example && bun install && bun run dev",
-    "build:example": "cd example && bun install && bun run build"
+    "build:example": "cd example && bun install && bun run build",
+    "release:patch": "npm version patch && git push --follow-tags"
   },
   "keywords": [
     "image",
