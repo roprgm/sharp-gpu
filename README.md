@@ -38,7 +38,8 @@ A GPU-accelerated image processing library for the web, powered by WebGL and REG
 - [x] Tint
 - [x] Grayscale
 - [x] LUT-based grading (`lut()`)
-- [ ] Linear, gamma, normalize, negate
+- [x] Linear, gamma, negate
+- [ ] Histogram-based normalize
 - [ ] Thresholding
 - [ ] Channel operations (remove/ensure alpha, join/extract channel)
 
@@ -100,10 +101,19 @@ const blob = await image.blur(5).grayscale().toBlob("image/png");
   tint?: [r, g, b]     // 0-1 normalized RGB (default: [1, 1, 1])
 })
 
+// Linear adjustment (scale + offset per channel, optional alpha)
+.linear(multiply: number | [r, g, b] | [r, g, b, a], add?: number | [r, g, b] | [r, g, b, a])
+
+// Gamma correction (default gamma=2.2, gammaOut=1.0)
+.gamma(gamma?: number | [r, g, b], gammaOut?: number | [r, g, b])
+
+// Channel inversion
+.negate()
+
 // Grayscale (shorthand for saturation: 0)
 .grayscale()
 
-// Tint
+// Tint (helper around linear scaling)
 .tint([r, g, b])
 
 // Look-Up Table (custom color grading)

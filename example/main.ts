@@ -3,37 +3,61 @@ import { Pane } from "tweakpane";
 
 const canvas = document.getElementById("main") as HTMLCanvasElement;
 
+const defaultParams = {
+  // Effects
+  blur: 0,
+
+  // Color adjustments
+  brightness: 1,
+  saturation: 1,
+  hue: 0,
+  lightness: 0,
+
+  // Linear adjustment
+  multiply: { r: 1, g: 1, b: 1, a: 1 },
+  add: { r: 0, g: 0, b: 0, a: 0 },
+
+  // Gamma
+  gamma: 1.0,
+
+  // Negate
+  negate: false,
+};
+
 async function main() {
   let image = await SharpGPU.from("/example.png");
   image.resize({ width: 500 });
 
   // Create controls
-  const params = {
-    // Effects
-    blur: 0,
-
-    // Color adjustments
-    brightness: 1,
-    saturation: 1,
-    hue: 0,
-    lightness: 0,
-
-    // Tint
-    tint: { r: 255, g: 255, b: 255 },
-  };
+  const params = { ...defaultParams };
 
   const render = () => {
-    image
+    let pipeline = image
       .clone()
-      .blur(params.blur)
       .modulate({
         brightness: params.brightness,
         saturation: params.saturation,
         hue: params.hue,
         lightness: params.lightness,
-        tint: [params.tint.r / 255, params.tint.g / 255, params.tint.b / 255],
       })
-      .toCanvas(canvas);
+      .gamma(params.gamma)
+      .multiply([
+        params.multiply.r,
+        params.multiply.g,
+        params.multiply.b,
+        params.multiply.a,
+      ])
+      .add([params.add.r, params.add.g, params.add.b, params.add.a]);
+
+    if (params.blur) {
+      pipeline = pipeline.blur(params.blur);
+    }
+
+    if (params.negate) {
+      pipeline = pipeline.negate();
+    }
+
+    pipeline.toCanvas(canvas);
   };
 
   const pane = new Pane({
@@ -95,9 +119,36 @@ async function main() {
     })
     .on("change", render);
 
+  // Linear & Gamma controls
   colorFolder
-    .addBinding(params, "tint", {
-      label: "Tint",
+    .addBinding(params, "multiply", {
+      label: "Multiply",
+      color: { type: "float", alpha: true },
+      picker: "inline",
+    })
+    .on("change", render);
+
+  colorFolder
+    .addBinding(params, "add", {
+      label: "Add",
+      picker: "inline",
+      color: { type: "float", alpha: true },
+    })
+    .on("change", render);
+
+  colorFolder
+    .addBinding(params, "gamma", {
+      label: "Gamma",
+      min: 0.1,
+      max: 2,
+      step: 0.01,
+    })
+    .on("change", render);
+
+  // Negate folder
+  colorFolder
+    .addBinding(params, "negate", {
+      label: "Negate",
     })
     .on("change", render);
 
@@ -107,12 +158,7 @@ async function main() {
       title: "Reset All",
     })
     .on("click", () => {
-      params.blur = 0;
-      params.brightness = 1;
-      params.saturation = 1;
-      params.hue = 0;
-      params.lightness = 0;
-      params.tint = { r: 255, g: 255, b: 255 };
+      Object.assign(params, defaultParams);
       pane.refresh();
       render();
     });

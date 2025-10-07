@@ -21,6 +21,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
+    "dev:example": "cd example && bun install && bun run dev",
     "build:example": "cd example && bun install && bun run build"
   },
   "keywords": [

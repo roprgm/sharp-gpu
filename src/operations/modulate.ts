@@ -97,11 +97,15 @@ export function createModulateCommand(regl: Regl) {
     `,
     uniforms: {
       src: (ctx: RenderContext) => ctx.srcTexture,
-      brightness: regl.prop<ModulateParams, "brightness">("brightness"),
-      saturation: regl.prop<ModulateParams, "saturation">("saturation"),
-      hue: regl.prop<ModulateParams, "hue">("hue"),
-      lightness: regl.prop<ModulateParams, "lightness">("lightness"),
-      tint: regl.prop<ModulateParams, "tint">("tint"),
+      brightness: (_ctx: RenderContext, props: ModulateParams) =>
+        props.brightness ?? 1,
+      saturation: (_ctx: RenderContext, props: ModulateParams) =>
+        props.saturation ?? 1,
+      hue: (_ctx: RenderContext, props: ModulateParams) => props.hue ?? 0,
+      lightness: (_ctx: RenderContext, props: ModulateParams) =>
+        props.lightness ?? 0,
+      tint: (_ctx: RenderContext, props: ModulateParams) =>
+        props.tint ?? [1, 1, 1],
     },
   });
 }

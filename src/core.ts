@@ -1,48 +1,20 @@
-import createREGL, { Regl, Framebuffer2D, Texture2D, DrawCommand } from "regl";
-import { createBlurCommand } from "./operations/blur";
-import { createMapCommand } from "./operations/map";
-import { createModulateCommand, ModulateParams } from "./operations/modulate";
-import { createLUTCommand, LUTParams } from "./operations/lut";
+import createREGL, { Regl, Texture2D } from "regl";
+import { RenderCommands, GPUCommand } from "./commands";
+import { FBO } from "./utils/fbo";
 import { RenderContext, Size } from "./types";
 import { computeSize, ResizeParams } from "./utils/resize";
+import { clampVec3Min, toVec3, toVec4, Vec3, Vec4 } from "./utils/vector";
+import type { ModulateParams } from "./operations/modulate";
+import type { LUTParams } from "./operations/lut";
 
 type ImageSource = string;
 
-class FBO {
-  size: Size;
-  texture: Texture2D;
-  buffer: Framebuffer2D;
-
-  constructor(regl: Regl, size: Size) {
-    this.size = size;
-    this.texture = regl.texture({
-      width: size.width,
-      height: size.height,
-      min: "linear",
-      mag: "linear",
-    });
-    this.buffer = regl.framebuffer({ color: this.texture });
-  }
-
-  resize(size: Size) {
-    if (this.size.width === size.width && this.size.height === size.height) {
-      return;
-    }
-    this.size = size;
-    this.texture.resize(size.width, size.height);
-    this.buffer.resize(size.width, size.height);
-  }
-
-  destroy() {
-    this.texture.destroy();
-    this.buffer.destroy();
-  }
-}
+type LinearInput = number | Vec3 | Vec4;
 
 type PipelineItem = {
-  cmd: DrawCommand<RenderContext>;
+  cmd: GPUCommand;
   size?: Size;
-  params?: {};
+  params?: Record<string, unknown>;
 };
 
 type ShareGPUParams = {
@@ -51,20 +23,6 @@ type ShareGPUParams = {
   fboA?: FBO;
   fboB?: FBO;
 };
-
-class RenderCommands {
-  map: DrawCommand<RenderContext>;
-  blur: DrawCommand<RenderContext>;
-  modulate: DrawCommand<RenderContext>;
-  lut: DrawCommand<RenderContext>;
-
-  constructor(regl: Regl) {
-    this.map = createMapCommand(regl);
-    this.blur = createBlurCommand(regl);
-    this.modulate = createModulateCommand(regl);
-    this.lut = createLUTCommand(regl);
-  }
-}
 
 export class SharpGPU {
   private regl: Regl;
@@ -229,12 +187,50 @@ export class SharpGPU {
     });
   }
 
+  multiply(multiply: LinearInput) {
+    return this.linear(multiply, 0);
+  }
+
+  add(add: LinearInput) {
+    return this.linear(1, add);
+  }
+
+  linear(multiply: LinearInput, add: LinearInput = 0) {
+    return this.pipe({
+      cmd: this.commands.linear,
+      params: {
+        multiply: toVec4(multiply, 1, 1),
+        add: toVec4(add, 0, 0),
+      },
+    });
+  }
+
+  gamma(gamma: LinearInput = 2.2, gammaOut: LinearInput = 1) {
+    const gammaVec = clampVec3Min(toVec3(gamma, 2.2), 0.0001);
+    const gammaOutVec = clampVec3Min(toVec3(gammaOut, 1), 0.0001);
+    const exponent: Vec3 = [
+      gammaOutVec[0] / gammaVec[0],
+      gammaOutVec[1] / gammaVec[1],
+      gammaOutVec[2] / gammaVec[2],
+    ];
+
+    return this.pipe({
+      cmd: this.commands.gamma,
+      params: { exponent },
+    });
+  }
+
+  negate() {
+    return this.linear([-1, -1, -1, 1], [1, 1, 1, 0]);
+  }
+
   grayscale() {
     return this.modulate({ saturation: 0 });
   }
 
   tint(tint: ModulateParams["tint"]) {
-    return this.modulate({ tint });
+    const multiply = toVec4(tint, 1, 1);
+    return this.linear(multiply, toVec4(0, 0, 0));
   }
 
   lut(lut: LUTParams["lut"]) {
