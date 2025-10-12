@@ -1,190 +1,98 @@
-import createREGL, { Regl, Texture2D } from "regl";
-import { RenderCommands, GPUCommand } from "./commands";
-import { FBO } from "./utils/fbo";
-import { RenderContext, Size } from "./types";
-import { computeSize, ResizeParams } from "./utils/resize";
+import type { Size } from "./utils/size";
+import { PipelineOperation } from "./operations/pipeline";
+import { GLRenderer, GLTexture } from "./gl";
 import { clampVec3Min, toVec3, toVec4, Vec3, Vec4 } from "./utils/vector";
-import type { ModulateParams } from "./operations/modulate";
-import type { LUTParams } from "./operations/lut";
+
+import { COPY } from "./programs";
+import { computeSize, ResizeParams } from "./utils/size";
+import { CopyOperation, ResizeOperation } from "./operations/basic";
+import { BlurOperation } from "./operations/blur";
+import { ModulateOperation, ModulateParams } from "./operations/modulate";
+import { GammaOperation } from "./operations/gamma";
+import { LinearOperation } from "./operations/linear";
+import { LUTOperation, LUTParams } from "./operations/lut";
 
 type ImageSource = string;
-
 type LinearInput = number | Vec3 | Vec4;
 
-type PipelineItem = {
-  cmd: GPUCommand;
-  size?: Size;
-  params?: Record<string, unknown>;
-};
-
-type ShareGPUParams = {
-  regl?: Regl;
-  pipeline?: PipelineItem[];
-  fboA?: FBO;
-  fboB?: FBO;
+type SharpGPUParams = {
+  gl?: GLRenderer;
+  pipeline?: PipelineOperation;
 };
 
 export class SharpGPU {
-  private regl: Regl;
-  private pipeline: PipelineItem[] = [];
+  gl: GLRenderer;
 
-  private fboA: FBO;
-  private fboB: FBO;
-  private lastSize: Size;
+  private pipeline: PipelineOperation;
 
-  private commands: RenderCommands;
-
-  constructor(params?: ShareGPUParams) {
-    params = params ?? {};
-
-    if (!params.regl) {
-      const canvas = document.createElement("canvas");
-      this.regl = createREGL({
-        canvas,
-        attributes: {
-          antialias: true,
-          alpha: true,
-          preserveDrawingBuffer: true,
-          depth: false,
-        },
-      });
-    } else {
-      this.regl = params.regl;
-    }
-
-    this.pipeline = params.pipeline ?? [];
-    this.fboA = params.fboA ?? new FBO(this.regl, this.size);
-    this.fboB = params.fboB ?? new FBO(this.regl, this.size);
-    this.commands = new RenderCommands(this.regl);
-    this.lastSize = this.size;
+  constructor(params: SharpGPUParams = {}) {
+    this.gl = params.gl ?? new GLRenderer();
+    this.pipeline = params.pipeline ?? new PipelineOperation(this.gl);
   }
 
   static async from(src: ImageSource) {
     return new SharpGPU().loadImage(src);
   }
 
-  clone() {
-    return new SharpGPU({
-      regl: this.regl,
-      pipeline: [...this.pipeline],
-      fboA: this.fboA,
-      fboB: this.fboB,
-    });
+  get canvas() {
+    return this.gl.canvas;
   }
 
-  clean() {
-    this.pipeline = [];
-    return this;
+  get size(): Size {
+    return {
+      width: this.canvas.width,
+      height: this.canvas.height,
+    };
+  }
+
+  clone() {
+    return new SharpGPU({
+      gl: this.gl,
+      pipeline: this.pipeline.clone(),
+    });
   }
 
   async loadImage(src: ImageSource) {
     const image = new Image();
     image.src = src;
     await image.decode();
-    const texture = this.regl.texture({ data: image, flipY: true });
-    return this.resize({ width: image.width, height: image.height }).map(
-      texture,
-    );
+
+    const texture = this.gl.texture({
+      width: image.width,
+      height: image.height,
+      data: image,
+      flipY: true,
+    });
+
+    this.resize({ width: image.width, height: image.height });
+    return this.copy(texture);
   }
 
-  get canvas() {
-    return this.regl._gl.canvas as HTMLCanvasElement;
-  }
-
-  get size() {
-    return { width: this.canvas.width, height: this.canvas.height };
-  }
-
-  private resizeCanvas(size: Size) {
-    if (
-      this.canvas.width === size.width &&
-      this.canvas.height === size.height
-    ) {
-      return;
-    }
-    this.canvas.width = size.width;
-    this.canvas.height = size.height;
-  }
-
-  private swapFBOs() {
-    [this.fboA, this.fboB] = [this.fboB, this.fboA];
-  }
-
-  /** Render all operations to framebuffers */
-  private async render() {
-    this.regl.poll();
-
-    for (const item of this.pipeline) {
-      if (item.size) {
-        this.fboB.resize(item.size);
-      }
-
-      this.regl.poll();
-
-      const cmd = this.regl<RenderContext>({
-        framebuffer: this.fboB.buffer,
-        context: {
-          srcTexture: this.fboA.texture,
-          srcSize: this.fboA.size,
-        },
-      });
-
-      cmd(() => {
-        this.regl.clear({ color: [0, 0, 0, 1], depth: 1 });
-        item.cmd({ ...item.params });
-      });
-
-      this.fboA.resize(this.fboB.size);
-      this.swapFBOs();
-    }
-
-    this.resizeCanvas(this.fboA.size);
-    this.regl.poll();
-
-    this.commands.map({ src: this.fboA.texture });
-  }
-
-  pipe(item: PipelineItem) {
-    this.pipeline.push(item);
+  // Operations
+  resize(size: ResizeParams) {
+    const computed = computeSize(this.size, size);
+    this.pipeline.add(new ResizeOperation(computed));
+    this.gl.resize(computed);
     return this;
   }
 
-  // Commands
-  resize(params: ResizeParams) {
-    this.lastSize = computeSize(this.lastSize, params);
-    return this.pipe({
-      cmd: this.commands.map,
-      size: this.lastSize,
-    });
-  }
-
-  map(src: Texture2D) {
-    return this.pipe({
-      cmd: this.commands.map,
-      params: { src },
-    });
+  copy(src: GLTexture) {
+    this.pipeline.add(new CopyOperation(src));
+    return this;
   }
 
   blur(radius: number) {
     if (radius > 0) {
-      this.pipe({
-        cmd: this.commands.blur,
-        params: { radius, direction: [1, 0] },
-      });
-      this.pipe({
-        cmd: this.commands.blur,
-        params: { radius, direction: [0, 1] },
-      });
+      this.pipeline.add(new BlurOperation({ radius, direction: [1, 0] }));
+      this.pipeline.add(new BlurOperation({ radius, direction: [0, 1] }));
     }
 
     return this;
   }
 
-  modulate(params: ModulateParams) {
-    return this.pipe({
-      cmd: this.commands.modulate,
-      params,
-    });
+  modulate(props: ModulateParams) {
+    this.pipeline.add(new ModulateOperation(props));
+    return this;
   }
 
   multiply(multiply: LinearInput) {
@@ -196,28 +104,21 @@ export class SharpGPU {
   }
 
   linear(multiply: LinearInput, add: LinearInput = 0) {
-    return this.pipe({
-      cmd: this.commands.linear,
-      params: {
+    this.pipeline.add(
+      new LinearOperation({
         multiply: toVec4(multiply, 1, 1),
         add: toVec4(add, 0, 0),
-      },
-    });
+      }),
+    );
+    return this;
   }
 
   gamma(gamma: LinearInput = 2.2, gammaOut: LinearInput = 1) {
-    const gammaVec = clampVec3Min(toVec3(gamma, 2.2), 0.0001);
-    const gammaOutVec = clampVec3Min(toVec3(gammaOut, 1), 0.0001);
-    const exponent: Vec3 = [
-      gammaOutVec[0] / gammaVec[0],
-      gammaOutVec[1] / gammaVec[1],
-      gammaOutVec[2] / gammaVec[2],
-    ];
-
-    return this.pipe({
-      cmd: this.commands.gamma,
-      params: { exponent },
-    });
+    const a = clampVec3Min(toVec3(gamma, 2.2), 0.0001);
+    const b = clampVec3Min(toVec3(gammaOut, 1), 0.0001);
+    const exponent: Vec3 = [b[0] / a[0], b[1] / a[1], b[2] / a[2]];
+    this.pipeline.add(new GammaOperation({ exponent }));
+    return this;
   }
 
   negate() {
@@ -234,35 +135,50 @@ export class SharpGPU {
   }
 
   lut(lut: LUTParams["lut"]) {
-    return this.pipe({
-      cmd: this.commands.lut,
-      params: { lut },
+    this.pipeline.add(new LUTOperation({ lut }));
+    return this;
+  }
+
+  private render() {
+    const target = this.gl.framebuffer({
+      width: this.size.width,
+      height: this.size.height,
+    });
+
+    const source = this.gl.texture({
+      width: this.size.width,
+      height: this.size.height,
+    });
+
+    this.pipeline.run({
+      gl: this.gl,
+      source,
+      target,
+    });
+
+    this.gl.resize(target.size);
+    this.gl.program(COPY).draw({
+      source: target.texture,
     });
   }
 
-  /** Render the result to a canvas */
   async toCanvas(target: HTMLCanvasElement) {
-    await this.render();
-
-    if (
-      target.width !== this.canvas.width ||
-      target.height !== this.canvas.height
-    ) {
-      target.width = this.canvas.width;
-      target.height = this.canvas.height;
-    }
+    this.render();
 
     const ctx = target.getContext("2d");
+
     if (!ctx) {
       throw new Error("Failed to get 2D context");
     }
 
+    target.width = this.size.width;
+    target.height = this.size.height;
     ctx.drawImage(this.canvas, 0, 0, target.width, target.height);
     return this;
   }
 
   async toBlob(type?: string, quality?: number): Promise<Blob> {
-    await this.render();
+    this.render();
     return new Promise((resolve, reject) => {
       this.canvas.toBlob(
         (blob) => (blob ? resolve(blob) : reject()),
@@ -273,8 +189,7 @@ export class SharpGPU {
   }
 
   destroy() {
-    this.fboA.destroy();
-    this.fboB.destroy();
-    this.regl.destroy();
+    this.pipeline.dispose();
+    this.gl.dispose();
   }
 }

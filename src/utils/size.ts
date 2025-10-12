@@ -1,4 +1,7 @@
-import { Size } from "../types";
+export type Size = {
+  width: number;
+  height: number;
+};
 
 export type ResizeParams = {
   width?: number;
