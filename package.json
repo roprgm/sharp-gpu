@@ -1,6 +1,6 @@
 {
   "name": "sharp-gpu",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "author": "Roprgm",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
