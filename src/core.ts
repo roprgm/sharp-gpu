@@ -1,11 +1,11 @@
-import type { Size } from "./utils/size";
-import { PipelineOperation } from "./operations/pipeline";
 import { GLRenderer, GLTexture } from "./gl";
 import { clampVec3Min, toVec3, toVec4, Vec3, Vec4 } from "./utils/vector";
 
 import { COPY } from "./programs";
-import { computeSize, ResizeParams } from "./utils/size";
-import { CopyOperation, ResizeOperation } from "./operations/basic";
+import { BaseOperation, CopyOperation } from "./operations/base";
+
+import { ColorOperation } from "./operations/color";
+import { Size, ResizeParams, ResizeOperation } from "./operations/resize";
 import { BlurOperation } from "./operations/blur";
 import { ModulateOperation, ModulateParams } from "./operations/modulate";
 import { GammaOperation } from "./operations/gamma";
@@ -16,18 +16,17 @@ type ImageSource = string;
 type LinearInput = number | Vec3 | Vec4;
 
 type SharpGPUParams = {
-  gl?: GLRenderer;
-  pipeline?: PipelineOperation;
+  renderer?: GLRenderer;
+  operations?: BaseOperation[];
 };
 
 export class SharpGPU {
-  gl: GLRenderer;
-
-  private pipeline: PipelineOperation;
+  renderer: GLRenderer;
+  operations: BaseOperation[] = [];
 
   constructor(params: SharpGPUParams = {}) {
-    this.gl = params.gl ?? new GLRenderer();
-    this.pipeline = params.pipeline ?? new PipelineOperation(this.gl);
+    this.renderer = params.renderer ?? new GLRenderer();
+    this.operations = params.operations ?? [];
   }
 
   static async from(src: ImageSource) {
@@ -35,7 +34,7 @@ export class SharpGPU {
   }
 
   get canvas() {
-    return this.gl.canvas;
+    return this.renderer.canvas;
   }
 
   get size(): Size {
@@ -47,8 +46,8 @@ export class SharpGPU {
 
   clone() {
     return new SharpGPU({
-      gl: this.gl,
-      pipeline: this.pipeline.clone(),
+      renderer: this.renderer,
+      operations: [...this.operations],
     });
   }
 
@@ -57,41 +56,43 @@ export class SharpGPU {
     image.src = src;
     await image.decode();
 
-    const texture = this.gl.texture({
+    const texture = this.renderer.texture({
       width: image.width,
       height: image.height,
       data: image,
       flipY: true,
     });
 
-    this.resize({ width: image.width, height: image.height });
-    return this.copy(texture);
+    return this.resize(image).copy(texture);
   }
 
   // Operations
-  resize(size: ResizeParams) {
-    const computed = computeSize(this.size, size);
-    this.pipeline.add(new ResizeOperation(computed));
-    this.gl.resize(computed.width, computed.height);
+  addOperation(operation: BaseOperation) {
+    this.operations.push(operation);
+    return this;
+  }
+
+  resize(params: ResizeParams) {
+    this.addOperation(new ResizeOperation(params));
     return this;
   }
 
   copy(src: GLTexture) {
-    this.pipeline.add(new CopyOperation(src));
+    this.addOperation(new CopyOperation(src));
     return this;
   }
 
   blur(radius: number) {
     if (radius > 0) {
-      this.pipeline.add(new BlurOperation({ radius, direction: [1, 0] }));
-      this.pipeline.add(new BlurOperation({ radius, direction: [0, 1] }));
+      this.addOperation(new BlurOperation({ radius, direction: [1, 0] }));
+      this.addOperation(new BlurOperation({ radius, direction: [0, 1] }));
     }
 
     return this;
   }
 
   modulate(props: ModulateParams) {
-    this.pipeline.add(new ModulateOperation(props));
+    this.addOperation(new ModulateOperation(props));
     return this;
   }
 
@@ -104,7 +105,7 @@ export class SharpGPU {
   }
 
   linear(multiply: LinearInput, add: LinearInput = 0) {
-    this.pipeline.add(
+    this.addOperation(
       new LinearOperation({
         multiply: toVec4(multiply, 1, 1),
         add: toVec4(add, 0, 0),
@@ -117,7 +118,7 @@ export class SharpGPU {
     const a = clampVec3Min(toVec3(gamma, 2.2), 0.0001);
     const b = clampVec3Min(toVec3(gammaOut, 1), 0.0001);
     const exponent: Vec3 = [b[0] / a[0], b[1] / a[1], b[2] / a[2]];
-    this.pipeline.add(new GammaOperation({ exponent }));
+    this.addOperation(new GammaOperation({ exponent }));
     return this;
   }
 
@@ -135,28 +136,41 @@ export class SharpGPU {
   }
 
   lut(lut: LUTParams["lut"]) {
-    this.pipeline.add(new LUTOperation({ lut }));
+    this.addOperation(new LUTOperation({ lut }));
     return this;
   }
 
+  color(color: Vec4) {
+    this.addOperation(new ColorOperation(color));
+    return this;
+  }
+
+  // Render
   private render() {
-    const target = this.gl.framebuffer();
+    let src = this.renderer.framebuffer();
+    let dst = this.renderer.framebuffer();
 
-    const source = this.gl.texture({
-      width: this.size.width,
-      height: this.size.height,
-    });
+    // Run operations
+    for (const operation of this.operations) {
+      operation.run({
+        renderer: this.renderer,
+        source: src.texture,
+        target: dst,
+      });
 
-    this.pipeline.run({
-      gl: this.gl,
-      source,
-      target,
-    });
+      // Swap buffers
+      [src, dst] = [dst, src];
 
-    this.gl.resize(target.texture.width, target.texture.height);
+      // Resize target to source size
+      dst.texture.resize(src.texture.width, src.texture.height);
+    }
 
-    this.gl.program(COPY).draw({
-      source: target.texture,
+    // Resize canvas
+    this.renderer.resize(src.texture.width, src.texture.height);
+
+    // Copy source to canvas
+    this.renderer.program(COPY).draw({
+      source: src.texture,
     });
   }
 
@@ -187,7 +201,6 @@ export class SharpGPU {
   }
 
   destroy() {
-    this.pipeline.dispose();
-    this.gl.dispose();
+    this.renderer.dispose();
   }
 }

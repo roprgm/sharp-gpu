@@ -1,6 +1,6 @@
 import { GLTexture, GLProgramDefinition } from "../gl";
 import { Vec3 } from "../utils/vector";
-import { ProgramOperation, type OperationContext } from "./basic";
+import { ProgramOperation, type OperationContext } from "./base";
 
 export type ModulateUniforms = {
   source: GLTexture;

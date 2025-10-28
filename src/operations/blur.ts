@@ -1,5 +1,5 @@
 import { GLProgramDefinition, GLTexture } from "../gl";
-import { OperationContext, ProgramOperation } from "./basic";
+import { OperationContext, ProgramOperation } from "./base";
 
 export type BlurProps = {
   source: GLTexture;
@@ -73,7 +73,7 @@ export class BlurOperation extends ProgramOperation<BlurProps> {
       throw new Error("Source texture is required");
     }
 
-    const program = ctx.gl.program(blur);
+    const program = ctx.renderer.program(blur);
 
     ctx.target.use(() => {
       program.draw({

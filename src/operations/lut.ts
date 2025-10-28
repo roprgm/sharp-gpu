@@ -1,5 +1,5 @@
 import { GLTexture, GLProgramDefinition } from "../gl";
-import { ProgramOperation, OperationContext } from "./basic";
+import { ProgramOperation, OperationContext } from "./base";
 
 export type LUTParams = {
   lut?: number[] | ((x: number) => number);
@@ -61,7 +61,7 @@ export class LUTOperation extends ProgramOperation<LUTUniforms> {
 
   private ensureTexture(ctx: OperationContext) {
     if (!this.texture) {
-      this.texture = ctx.gl.texture({
+      this.texture = ctx.renderer.texture({
         width: 256,
         height: 1,
         format: "luminance",

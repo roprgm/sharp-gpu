@@ -1,5 +1,5 @@
 import { GLTexture, GLProgramDefinition } from "../gl";
-import { ProgramOperation, OperationContext } from "./basic";
+import { ProgramOperation, OperationContext } from "./base";
 import { Vec4 } from "../utils/vector";
 
 export type LinearUniforms = {
