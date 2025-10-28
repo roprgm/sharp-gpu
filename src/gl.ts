@@ -1,5 +1,5 @@
 // Generic type for WebGL context
-export type GLContext = WebGLRenderingContext;
+export type GLContext = WebGLRenderingContext | WebGL2RenderingContext;
 
 // Map WebGL constants to human-readable values
 export const glMap = (gl: GLContext) => ({
@@ -12,6 +12,7 @@ export const glMap = (gl: GLContext) => ({
   },
   type: {
     uint8: gl.UNSIGNED_BYTE,
+    float: gl.FLOAT,
   },
   wrap: {
     clamp: gl.CLAMP_TO_EDGE,
@@ -176,6 +177,9 @@ export class GLTexture {
     if (width <= 0 || height <= 0) {
       throw new Error("Texture width and height must be positive");
     }
+    if (width === this.width && height === this.height) {
+      return;
+    }
     this.update({ width, height });
   }
 
@@ -188,32 +192,31 @@ export class GLTexture {
 export type GLBufferData = ArrayBufferView | ArrayLike<number> | null;
 
 export type GLBufferParams = {
-  target?: keyof GLMap["bufferTarget"];
-  usage?: keyof GLMap["bufferUsage"];
-  data?: GLBufferData;
-};
-
-export type GLBuffer = {
   target: keyof GLMap["bufferTarget"];
   usage: keyof GLMap["bufferUsage"];
-  use: (fn: () => void) => void;
-  update: (data: GLBufferData) => void;
-  dispose: () => void;
+  data: GLBufferData;
 };
 
-export type GLFramebuffer = {
-  texture: GLTexture;
-  use: (fn: () => void) => void;
-  dispose: () => void;
-};
+export class GLBuffer {
+  target: keyof GLMap["bufferTarget"];
+  usage: keyof GLMap["bufferUsage"];
 
-export function createBuffer(gl: GLContext, params: GLBufferParams = {}) {
-  const handle = gl.createBuffer();
+  readonly gl: GLContext;
+  readonly handle: WebGLBuffer;
 
-  const target = params.target ?? "array";
-  const usage = params.usage ?? "static";
+  constructor(gl: GLContext, params: Partial<GLBufferParams> = {}) {
+    this.gl = gl;
+    this.handle = gl.createBuffer();
 
-  const normalizeData = (data: GLBufferData) => {
+    this.target = params.target ?? "array";
+    this.usage = params.usage ?? "static";
+
+    if (params.data) {
+      this.update(params.data);
+    }
+  }
+
+  private normalizeData(data: GLBufferData): ArrayBufferView | null {
     if (ArrayBuffer.isView(data)) {
       return data;
     }
@@ -221,78 +224,71 @@ export function createBuffer(gl: GLContext, params: GLBufferParams = {}) {
       return new Float32Array(data);
     }
     return null;
-  };
-
-  const targetEnum = glMap(gl).bufferTarget[target];
-  const usageEnum = glMap(gl).bufferUsage[usage];
-
-  const use = (fn: () => void) => {
-    gl.bindBuffer(targetEnum, handle);
-    fn();
-    gl.bindBuffer(targetEnum, null);
-  };
-
-  const update = (data: GLBufferData) => {
-    const payload = normalizeData(data);
-    use(() => {
-      if (payload) {
-        gl.bufferData(targetEnum, payload, usageEnum);
-      } else {
-        gl.bufferData(targetEnum, 0, usageEnum);
-      }
-    });
-  };
-
-  if (params.data) {
-    update(params.data);
   }
 
-  return {
-    use,
-    update,
-    target,
-    usage,
-    dispose: () => gl.deleteBuffer(handle),
-  };
+  use(fn: () => void) {
+    if (!this.handle) return;
+    const targetEnum = glMap(this.gl).bufferTarget[this.target];
+    this.gl.bindBuffer(targetEnum, this.handle);
+    fn();
+    this.gl.bindBuffer(targetEnum, null);
+  }
+
+  update(data: GLBufferData) {
+    if (!this.handle) return;
+    const targetEnum = glMap(this.gl).bufferTarget[this.target];
+    const usageEnum = glMap(this.gl).bufferUsage[this.usage];
+    const payload = this.normalizeData(data);
+    this.use(() => {
+      if (payload) {
+        this.gl.bufferData(targetEnum, payload, usageEnum);
+      } else {
+        this.gl.bufferData(targetEnum, 0, usageEnum);
+      }
+    });
+  }
+
+  dispose() {
+    this.gl.deleteBuffer(this.handle);
+  }
 }
 
-export function createFramebuffer(
-  gl: GLContext,
-  params: Partial<GLTextureParams> = {},
-) {
-  const texture = new GLTexture(gl, {
-    width: params.width ?? gl.canvas.width,
-    height: params.height ?? gl.canvas.height,
-    ...params,
-  });
+export class GLFramebuffer {
+  readonly gl: GLContext;
+  readonly texture: GLTexture;
+  readonly handle: WebGLFramebuffer;
 
-  const handle = gl.createFramebuffer();
+  constructor(gl: GLContext, texture: GLTexture) {
+    this.gl = gl;
+    this.texture = texture;
+    this.handle = gl.createFramebuffer();
 
-  // bind
-  gl.bindFramebuffer(gl.FRAMEBUFFER, handle);
-  gl.framebufferTexture2D(
-    gl.FRAMEBUFFER,
-    gl.COLOR_ATTACHMENT0,
-    gl.TEXTURE_2D,
-    texture.handle,
-    0,
-  );
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    // bind
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.handle);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER,
+      gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D,
+      this.texture.handle,
+      0,
+    );
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
 
-  return {
-    texture,
-    use: (fn: () => void) => {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, handle);
-      gl.viewport(0, 0, texture.width, texture.height);
-      fn();
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    },
-    dispose: () => gl.deleteFramebuffer(handle),
-  };
+  use(fn: () => void) {
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.handle);
+    this.gl.viewport(0, 0, this.texture.width, this.texture.height);
+    fn();
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+  }
+
+  dispose() {
+    this.gl.deleteFramebuffer(this.handle);
+    this.texture.dispose();
+  }
 }
 
 // Program
-
 export type GLBlendConfig = {
   enabled?: boolean;
   srcFactor?: keyof GLMap["blendFactor"];
@@ -352,44 +348,14 @@ type GLProgramAttribute<Props> = {
   value: GLAttribute | ((props: Props) => GLAttribute);
 };
 
-function defaultAttributes(gl: GLContext) {
-  const buffer = createBuffer(gl, {
-    target: "array",
-    usage: "static",
-    data: new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
-  });
-
-  return {
-    position: {
-      buffer,
-      size: 2,
-    },
-  };
-}
-
-const DEFAULT_FRAG = /* glsl */ `
-  precision mediump float;
-  varying vec2 uv;
-  void main() {
-    gl_FragColor = vec4(uv, 0.0, 1.0);
-  }
-`;
-
-const DEFAULT_VERT = /* glsl */ `
-  precision mediump float;
-  attribute vec2 position;
-  varying vec2 uv;
-  void main() {
-    uv = position * 0.5 + 0.5;
-    gl_Position = vec4(position, 0.0, 1.0);
-  }
-`;
-
 export class GLProgram<Props extends {} = {}> {
   readonly gl: GLContext;
   private readonly handle: WebGLProgram;
 
-  private blend?: GLBlendConfig;
+  private blend: GLBlendConfig = {
+    enabled: false,
+  };
+
   private elements?: GLBuffer;
   private primitive: keyof GLMap["primitive"];
   private count: number;
@@ -400,38 +366,62 @@ export class GLProgram<Props extends {} = {}> {
   private attributes: Record<string, GLProgramAttribute<Props>> = {};
   private attributeCache = new Map<number, GLAttribute>();
 
-  constructor(
-    gl: GLContext,
-    {
-      vert = DEFAULT_VERT,
-      frag = DEFAULT_FRAG,
-      primitive = "triangleStrip",
-      indexType = "uint16",
-      count = 4,
-      offset = 0,
-      uniforms,
-      attributes = defaultAttributes(gl),
-      elements,
-      blend,
-    }: GLProgramDefinition<Props> = {},
-  ) {
+  static readonly DEFAULT_VERT = /* glsl */ `
+    precision mediump float;
+    attribute vec2 position;
+    varying vec2 uv;
+    void main() {
+      uv = position * 0.5 + 0.5;
+      gl_Position = vec4(position, 0.0, 1.0);
+    }
+  `;
+
+  static readonly DEFAULT_FRAG = /* glsl */ `
+    precision mediump float;
+    varying vec2 uv;
+    void main() {
+      gl_FragColor = vec4(uv, 0.0, 1.0);
+    }
+  `;
+
+  static createFSQuadBuffer(gl: GLContext) {
+    return new GLBuffer(gl, {
+      target: "array",
+      usage: "static",
+      data: new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
+    });
+  }
+
+  constructor(gl: GLContext, definition: GLProgramDefinition<Props> = {}) {
     this.gl = gl;
+
+    const vert = definition.vert ?? GLProgram.DEFAULT_VERT;
+    const frag = definition.frag ?? GLProgram.DEFAULT_FRAG;
+    const attributes = definition.attributes ?? {
+      position: {
+        buffer: GLProgram.createFSQuadBuffer(gl),
+        size: 2,
+      },
+    };
 
     if (!vert.length || !frag.length) {
       throw new Error("Program requires both vertex and fragment shaders");
     }
 
-    this.blend = blend;
-    this.elements = elements;
-    this.primitive = primitive;
-    this.count = count;
-    this.offset = offset;
-    this.indexType = indexType;
+    if (definition.blend) {
+      this.blend = definition.blend;
+    }
+
+    this.elements = definition.elements;
+    this.primitive = definition.primitive ?? "triangleStrip";
+    this.count = definition.count ?? 4;
+    this.offset = definition.offset ?? 0;
+    this.indexType = definition.indexType ?? "uint16";
 
     this.handle = this.buildProgram(gl, vert, frag);
 
-    if (uniforms) {
-      this.uniforms = this.buildUniforms(gl, uniforms);
+    if (definition.uniforms) {
+      this.uniforms = this.buildUniforms(gl, definition.uniforms);
     }
 
     if (attributes) {
@@ -686,23 +676,18 @@ export class GLProgram<Props extends {} = {}> {
     if (elements.target !== "element") {
       throw new Error("Indexed draws require an element buffer");
     }
+
+    const mode = glMap(this.gl).primitive[this.primitive];
     const type = glMap(this.gl).indexType[this.indexType ?? "uint16"];
+
     elements.use(() => {
-      this.gl.drawElements(
-        glMap(this.gl).primitive[this.primitive],
-        this.count ?? 4,
-        type,
-        this.offset ?? 0,
-      );
+      this.gl.drawElements(mode, this.count ?? 4, type, this.offset ?? 0);
     });
   }
 
   private drawArrays() {
-    this.gl.drawArrays(
-      glMap(this.gl).primitive[this.primitive],
-      this.offset ?? 0,
-      this.count ?? 4,
-    );
+    const mode = glMap(this.gl).primitive[this.primitive];
+    this.gl.drawArrays(mode, this.offset ?? 0, this.count ?? 4);
   }
 
   use(fn: () => void) {
@@ -755,7 +740,7 @@ export class GLRenderer {
     const canvas = params.canvas ?? document.createElement("canvas");
     const context =
       params.context ??
-      canvas.getContext("webgl", {
+      canvas.getContext("webgl2", {
         antialias: true,
         alpha: true,
         preserveDrawingBuffer: true,
@@ -805,13 +790,21 @@ export class GLRenderer {
     return new GLTexture(this.gl, params);
   }
 
-  framebuffer(params?: GLTextureParams): GLFramebuffer {
-    return createFramebuffer(this.gl, params);
+  framebuffer(texture?: GLTexture): GLFramebuffer {
+    if (!texture) {
+      texture = this.texture();
+    }
+    return new GLFramebuffer(this.gl, texture);
   }
 
-  buffer(params: GLBufferParams) {
-    return createBuffer(this.gl, params);
+  buffer(params: Partial<GLBufferParams> = {}) {
+    return new GLBuffer(this.gl, params);
   }
 
-  dispose() {}
+  dispose() {
+    for (const program of Object.values(this.programs)) {
+      program.dispose();
+    }
+    this.programs = new WeakMap();
+  }
 }
