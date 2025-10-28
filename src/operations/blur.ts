@@ -1,5 +1,4 @@
-import { GLProgramDefinition } from "../gl/program";
-import { GLTexture } from "../gl/texture";
+import { GLProgramDefinition, GLTexture } from "../gl";
 import { OperationContext, ProgramOperation } from "./basic";
 
 export type BlurProps = {

@@ -72,7 +72,7 @@ export class SharpGPU {
   resize(size: ResizeParams) {
     const computed = computeSize(this.size, size);
     this.pipeline.add(new ResizeOperation(computed));
-    this.gl.resize(computed);
+    this.gl.resize(computed.width, computed.height);
     return this;
   }
 
@@ -140,10 +140,7 @@ export class SharpGPU {
   }
 
   private render() {
-    const target = this.gl.framebuffer({
-      width: this.size.width,
-      height: this.size.height,
-    });
+    const target = this.gl.framebuffer();
 
     const source = this.gl.texture({
       width: this.size.width,
@@ -156,7 +153,8 @@ export class SharpGPU {
       target,
     });
 
-    this.gl.resize(target.size);
+    this.gl.resize(target.texture.width, target.texture.height);
+
     this.gl.program(COPY).draw({
       source: target.texture,
     });

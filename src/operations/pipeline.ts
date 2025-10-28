@@ -30,17 +30,11 @@ export class PipelineOperation extends BaseOperation {
 
   run(ctx: OperationContext) {
     if (!this.src) {
-      this.src = ctx.gl.framebuffer({
-        width: ctx.target.size.width,
-        height: ctx.target.size.height,
-      });
+      this.src = ctx.gl.framebuffer();
     }
 
     if (!this.dst) {
-      this.dst = ctx.gl.framebuffer({
-        width: ctx.target.size.width,
-        height: ctx.target.size.height,
-      });
+      this.dst = ctx.gl.framebuffer();
     }
 
     for (const item of this.operations) {

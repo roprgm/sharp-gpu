@@ -1,5 +1,4 @@
-import { GLProgramDefinition } from "./gl/program";
-import { GLTexture } from "./gl/texture";
+import type { GLProgramDefinition, GLTexture } from "./gl";
 import { Vec4 } from "./utils/vector";
 
 export const COPY: GLProgramDefinition<{ source: GLTexture }> = {
@@ -31,8 +30,8 @@ export const COLOR: GLProgramDefinition<{ color: Vec4 }> = {
   },
   blend: {
     enabled: true,
-    srcFactor: "src-alpha",
-    dstFactor: "one-minus-src-alpha",
+    srcFactor: "srcColor",
+    dstFactor: "oneMinusSrcColor",
     equation: "add",
   },
 };

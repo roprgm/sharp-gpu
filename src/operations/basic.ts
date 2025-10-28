@@ -1,11 +1,14 @@
-import { GLRenderer } from "../gl/renderer";
-import { GLProgramDefinition } from "../gl/program";
-import { GLTexture } from "../gl/texture";
+import {
+  GLRenderer,
+  GLProgramDefinition,
+  GLTexture,
+  GLFramebuffer,
+} from "../gl";
+
 import { Size } from "../utils/size";
 import { Vec4 } from "../utils/vector";
 
 import * as Programs from "../programs";
-import { GLFramebuffer } from "../gl";
 
 export type OperationContext = {
   gl: GLRenderer;
@@ -85,7 +88,7 @@ export class ResizeOperation extends ProgramOperation<{
   }
 
   run(ctx: OperationContext) {
-    ctx.target.resize(this.size);
+    ctx.target.texture.resize(this.size.width, this.size.height);
     super.run(ctx);
   }
 }
