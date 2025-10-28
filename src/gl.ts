@@ -792,7 +792,10 @@ export class GLRenderer {
 
   framebuffer(texture?: GLTexture): GLFramebuffer {
     if (!texture) {
-      texture = this.texture();
+      texture = this.texture({
+        width: this.canvas.width,
+        height: this.canvas.height,
+      });
     }
     return new GLFramebuffer(this.gl, texture);
   }
